@@ -37,7 +37,9 @@ def test_round_trip_and_formatting(gs):
     assert ws["K2"].hyperlink.target == "https://a.org/x"
     assert ws["G2"].value.startswith("=IF(ISNUMBER(E2)")
     assert ws["B3"].data_type == "s"  # scraped text never becomes a formula
-    assert {str(r.sqref) for r in ws.conditional_formatting} >= {"A2:A1000", "E2:F1000", "G2:G1000"}
+    assert {str(r.sqref) for r in ws.conditional_formatting} >= {"A2:A1000", "E2:F1000", "G2:G1000", "L2:L1000"}
+    status_rules = [r for cf in ws.conditional_formatting if str(cf.sqref) == "L2:L1000" for r in cf.rules]
+    assert len({r.dxf.fill.bgColor.rgb for r in status_rules}) == len(st.STATUSES)  # every status has its own colour
     assert len(ws.data_validations.dataValidation) == 3
     apps = wb[st.APPS]
     assert [c.value for c in apps[1] if c.value] == [g for g, _, _ in st.APP_GROUPS]

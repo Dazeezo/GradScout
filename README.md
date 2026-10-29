@@ -2,6 +2,15 @@
 
 Finds graduate-school funding (PhD, Master's, fellowships, scholarships, application fee waivers, RA/TA), scores it against your profile, and tracks your applications, all in one Excel workbook. Trainee programmes, internships and jobs are out of scope (a separate tool later).
 
+## Setting up for yourself
+GradScout is built around one applicant. To use it for yourself:
+1. Install Python 3.10+ and create the environment: `python -m venv .venv`, then `.venv\Scripts\python.exe -m pip install -r requirements.txt` (on macOS/Linux: `.venv/bin/python`). The home window (`GradScout.bat`) is Windows-only; the MCP server and tests are not.
+2. Write `profile/profile.md` (create the folder). This is what Fit is scored against: your degree and grades, research interests, target level (PhD / Master's), target intake, citizenship, languages, and any must-haves or exclusions. Without it the tools return "profile.md not found". `profile/` is git-ignored, so it stays on your machine.
+3. Register the server with Claude Code: `claude mcp add gradscout --scope user -- <path-to>/.venv/Scripts/python.exe <path-to>/app/server.py`.
+4. Optional: connect Gmail in Claude (for LinkedIn and FindAPhD alert emails) and add a scheduled task that runs the refresh; both are set up in the Claude app, not in this repo. The sender list is in the home window's settings.
+
+`data/` (workbook, settings, search log, backups) is created on first use; set `GRADSCOUT_DATA` to keep it elsewhere. Defaults such as refresh days, alert windows and requirement checklists are in `data/settings.json` and the home window.
+
 ## Everyday use
 - **Home window:** double-click `GradScout.bat`. Shows your shortlist counts, applications by stage, what is due soon (double-click to open the link), the last search per source, and every setting.
 - **Spreadsheet:** `data/GradScout.xlsx` (or "Open spreadsheet" in the home window).
@@ -25,6 +34,18 @@ A Claude scheduled task, **GradScout refresh**, runs daily at 10:00 while the Cl
 | Parked (jobs & internships) | Out-of-scope items kept for the future jobs tool. |
 | Search log | Which time window each source covered. |
 
+- **Status column** (dropdown on Opportunities, Reviewed and Parked; each value has its own colour):
+
+  | Status | Colour | Meaning | Effect |
+  |---|---|---|---|
+  | New | Blue | Just found, not yet looked at | None |
+  | Interested | Purple | You might pursue it | None; a marker for you |
+  | Applying | Orange | You have decided to apply | The next sync creates an Applications row |
+  | Applied | Green | Submitted | Set automatically when the application Stage becomes Submitted; setting it by hand does not create an application |
+  | Rejected | Red | Turned down | Dropped from due-soon alerts |
+  | Skip | Grey | Not pursuing | Dropped from due-soon alerts |
+
+  Status is only read from the spreadsheet for **Applying**. The application Stage drives Status (Stage to Status, not the reverse), so update the Stage on the Applications sheet as you progress.
 - **Starting applications:** set a row's Status to **Applying** in Excel (Opportunities or Reviewed), then ask Claude "sync applications" (or wait for the next scheduled run, which does it automatically). Every Applying row without an application gets one, with the checklist pre-filled. You can still say "Start an application for X" for a single one.
 - Changing Fit moves a row between Opportunities and Reviewed; starting an application sets the opportunity's Status to Applying, and the application Stage keeps it in sync.
 - Requirement checklists are pre-filled per type from the defaults in the home window ("Applications" tab); Claude then checks the official page.

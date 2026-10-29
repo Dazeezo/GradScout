@@ -292,6 +292,10 @@ def _write_opps(ws, rows: list[dict]) -> None:
         ws.cell(row=n, column=15).number_format = "dd mmm yyyy"
         _link_cell(ws.cell(row=n, column=11), r["Link"])
     _equals(ws, f"A2:A{LAST_ROW}", {"High": ("C6EFCE", "006100"), "Medium": ("FFEB9C", "9C5700"), "Low": ("FFC7CE", "9C0006")})
+    status = get_column_letter(OPP_COLUMNS.index("Status") + 1)
+    _equals(ws, f"{status}2:{status}{LAST_ROW}", {
+        "New": ("DDEBF7", "1F4E78"), "Interested": ("E4DFEC", "5B2C83"), "Applying": ("FCE4D6", "C65911"),
+        "Applied": ("C6EFCE", "006100"), "Rejected": ("FFC7CE", "9C0006"), "Skip": ("E7E6E6", "7F7F7F")})
     _deadline_rules(ws, "E", "F", 2, f"E2:F{LAST_ROW}")
     _equals(ws, f"G2:G{LAST_ROW}", {"Open": (None, "006100"), "Closed": ("E7E6E6", "7F7F7F"), "Check": ("FFEB9C", "9C5700")})
     _dropdowns(ws, {"Fit": FITS, "Category": CATEGORIES, "Status": STATUSES}, OPP_COLUMNS, 2)

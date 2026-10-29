@@ -90,8 +90,13 @@ def last_run(source: str, query: str = "") -> dict | None:
     return runs[-1] if runs else None
 
 
-def window(source: str, query: str, since: str = "", force: bool = False) -> tuple[datetime, datetime]:
+def window(source: str, query: str, since: str = "", force: bool = False, until: str = "") -> tuple[datetime, datetime]:
     settings, end = cfg.load_settings(), now()
+    if until:  # a bounded range ends at `until` (a bare date means the end of that day)
+        end = parse_ts(until)
+        if "T" not in until and " " not in until:
+            end += timedelta(days=1) - timedelta(seconds=1)
+        end = min(end, now())
     if since:
         return parse_ts(since), end
     last = None if force else last_run(source, query)
@@ -118,14 +123,19 @@ def auto_flush() -> None:
         pass
 
 
-def finish(source: str, query: str, start: datetime, end: datetime, results: list[dict], truncated: bool) -> dict:
+def finish(source: str, query: str, start: datetime, end: datetime, results: list[dict], truncated: bool,
+           bounded: bool = False) -> dict:
     tracked = {store.norm_link(r["Link"]) for r in store.all_opportunities(store.load()) if r["Link"]}
     allowed = [r for r in results if not excluded(r["title"])]
     kept = [r for r in allowed if store.norm_link(r["link"]) not in tracked]
     store.stash(kept)
     oldest = min((r["published"] for r in results if r.get("published")), default="")
     note = ""
-    if not truncated:
+    if bounded:  # a back-search over a fixed range must not move the "last run" marker
+        note = "Bounded search (until set): not written to the search log."
+        if truncated:
+            note += " Limit reached, so the range may be incomplete; narrow it or raise limit."
+    elif not truncated:
         record(source, query, start, end, len(kept))
     elif oldest:  # results are newest first, so only the span back to the oldest item was read
         record(source, query, parse_ts(oldest), end, len(kept))
@@ -141,9 +151,10 @@ def finish(source: str, query: str, start: datetime, end: datetime, results: lis
 
 # ---------------------------------------------------------------- sources
 
-def search_grants_gov(keyword: str, limit: int, include_forecasted: bool, since: str, force: bool) -> dict:
+def search_grants_gov(keyword: str, limit: int, include_forecasted: bool, since: str, force: bool,
+                      until: str = "") -> dict:
     auto_flush()
-    start, end = window("grants.gov", keyword, since, force)
+    start, end = window("grants.gov", keyword, since, force, until)
     statuses = "forecasted|posted" if include_forecasted else "posted"
     try:
         resp = httpx.post(GRANTS_URL, json={"keyword": keyword, "oppStatuses": statuses, "rows": limit,
@@ -157,35 +168,39 @@ def search_grants_gov(keyword: str, limit: int, include_forecasted: bool, since:
     results = []
     for h in hits:
         opened = store.parse_date(h.get("openDate"))
-        if opened and opened < start.date():
+        if opened and not start.date() <= opened <= end.date():
             continue
         closes = store.parse_date(h.get("closeDate"))
         results.append({"title": plain(h.get("title", "")), "organization": h.get("agency"),
                         "deadline": closes.isoformat() if closes else "See link", "number": h.get("number"),
                         "source": "Grants.gov", "published": opened.isoformat() if opened else "",
                         "link": f"https://www.grants.gov/search-results-detail/{h.get('id')}"})
-    return finish("grants.gov", keyword, start, end, results, truncated)
+    return finish("grants.gov", keyword, start, end, results, truncated, bool(until))
 
 
-def search_opportunitiespedia(keyword: str, limit: int, since: str, force: bool) -> dict:
+def search_opportunitiespedia(keyword: str, limit: int, since: str, force: bool, until: str = "") -> dict:
     auto_flush()
-    start, end = window("opportunitiespedia", keyword, since, force)
+    start, end = window("opportunitiespedia", keyword, since, force, until)
     per_page = min(limit, 100)
+    params = {"search": keyword, "per_page": per_page, "after": start.strftime("%Y-%m-%dT%H:%M:%S"),
+              "_fields": "link,title,date,excerpt,content"}
+    if until:
+        params["before"] = end.strftime("%Y-%m-%dT%H:%M:%S")
     try:
-        resp = httpx.get(PEDIA_URL, params={"search": keyword, "per_page": per_page,
-                                            "after": start.strftime("%Y-%m-%dT%H:%M:%S"),
-                                            "_fields": "link,title,date,excerpt,content"}, headers=UA, timeout=30)
+        resp = httpx.get(PEDIA_URL, params=params, headers=UA, timeout=30)
         resp.raise_for_status()
         posts = resp.json()
     except (httpx.HTTPError, ValueError) as e:
         return {"error": f"Opportunities Pedia search failed: {e}"}
     results = [make_item(plain(p["title"]["rendered"]), plain(p["content"]["rendered"]), plain(p["excerpt"]["rendered"]),
                          p["link"], p["date"][:10], "Opportunities Pedia") for p in posts]
-    return finish("opportunitiespedia", keyword, start, end, results, len(posts) >= per_page)
+    return finish("opportunitiespedia", keyword, start, end, results, len(posts) >= per_page, bool(until))
 
 
-def _search_feed(base_url: str, keyword: str, limit: int, start: datetime, source: str) -> tuple[list[dict], bool]:
-    """Page through a WordPress search feed (newest first) until posts are older than `start`."""
+def _search_feed(base_url: str, keyword: str, limit: int, start: datetime, source: str,
+                 end: datetime | None = None) -> tuple[list[dict], bool]:
+    """Page through a WordPress search feed (newest first) until posts are older than `start`;
+    posts newer than `end` (when given) are skipped."""
     ns = {"c": "http://purl.org/rss/1.0/modules/content/"}
     out: list[dict] = []
     for page in range(1, MAX_FEED_PAGES + 1):
@@ -201,6 +216,8 @@ def _search_feed(base_url: str, keyword: str, limit: int, start: datetime, sourc
             published = parsedate_to_datetime(it.findtext("pubDate"))
             if published < start:
                 return out, False
+            if end and published > end:
+                continue
             body = plain(it.findtext("c:encoded", default="", namespaces=ns) or it.findtext("description", default=""))
             out.append(make_item(plain(it.findtext("title", default="")), body,
                                  plain(it.findtext("description", default="")), it.findtext("link", default=""),
@@ -210,7 +227,8 @@ def _search_feed(base_url: str, keyword: str, limit: int, start: datetime, sourc
     return out, True
 
 
-def search_scholarship_sites(keyword: str, sites: list[str] | None, limit: int, since: str, force: bool) -> dict:
+def search_scholarship_sites(keyword: str, sites: list[str] | None, limit: int, since: str, force: bool,
+                             until: str = "") -> dict:
     auto_flush()
     chosen = sites or [s for s in cfg.load_settings()["sites"] if s in FEED_SITES]
     results, errors, truncated, windows = [], {}, [], {}
@@ -218,13 +236,13 @@ def search_scholarship_sites(keyword: str, sites: list[str] | None, limit: int, 
         if name not in FEED_SITES:
             errors[name] = f"unknown site, choose from {list(FEED_SITES)}"
             continue
-        start, end = window(name, keyword, since, force)
+        start, end = window(name, keyword, since, force, until)
         try:
-            found, cut = _search_feed(FEED_SITES[name], keyword, limit, start, name)
+            found, cut = _search_feed(FEED_SITES[name], keyword, limit, start, name, end if until else None)
         except (httpx.HTTPError, ET.ParseError, TypeError, ValueError) as e:
             errors[name] = str(e)
             continue
-        out = finish(name, keyword, start, end, found, cut)
+        out = finish(name, keyword, start, end, found, cut, bool(until))
         results += out["results"]
         windows[name] = out["window"]
         if cut:

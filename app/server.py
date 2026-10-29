@@ -23,7 +23,8 @@ fee waivers, RA/TA) for one applicant. Workflow for a refresh:
    (they remember what they covered).
 4. Score every result against the profile (Fit High/Medium/Low, reason, eligibility for a Nigerian citizen,
    checked on the official page when it matters) and record ALL of them with add_opportunities.
-5. Finish with get_digest and report High/Medium finds, deadlines and next actions.
+5. Run sync_applications (it creates Applications rows for opportunities whose Status is Applying), then
+   finish with get_digest and report High/Medium finds, deadlines and next actions.
 Nothing is ever deleted. Trainee programmes, internships and jobs are out of scope."""
 
 mcp = FastMCP("gradscout", instructions=INSTRUCTIONS)
@@ -120,29 +121,35 @@ def flush_pending() -> str:
 # ---------------------------------------------------------------- searches
 
 @mcp.tool()
-def search_opportunitiespedia(keyword: str, limit: int = 100, since: str = "", force: bool = False) -> dict:
+def search_opportunitiespedia(keyword: str, limit: int = 100, since: str = "", force: bool = False,
+                              until: str = "") -> dict:
     """Search opportunitiespedia.com (public WordPress API) for posts newer than the last run for this keyword.
 
     since: ISO date/time override; force: ignore history and use the default look-back.
+    until: end of a fixed date range (with since); the search is not written to the search log.
     """
-    return sources.search_opportunitiespedia(keyword, limit, since, force)
+    return sources.search_opportunitiespedia(keyword, limit, since, force, until)
 
 
 @mcp.tool()
 def search_scholarship_sites(keyword: str, sites: list[str] | None = None, limit: int = 100,
-                             since: str = "", force: bool = False) -> dict:
+                             since: str = "", force: bool = False, until: str = "") -> dict:
     """Search Scholars4dev and Opportunity Desk (public search feeds) for posts newer than each site's last run.
 
     Use short keywords (e.g. 'PhD', 'renewable energy'). sites defaults to the enabled ones in settings.
+    until: end of a fixed date range (with since); the search is not written to the search log.
     """
-    return sources.search_scholarship_sites(keyword, sites, limit, since, force)
+    return sources.search_scholarship_sites(keyword, sites, limit, since, force, until)
 
 
 @mcp.tool()
 def search_grants_gov(keyword: str, limit: int = 100, include_forecasted: bool = False,
-                      since: str = "", force: bool = False) -> dict:
-    """Search Grants.gov (US federal funding; mostly institution-level, check eligibility) for postings opened since the last run."""
-    return sources.search_grants_gov(keyword, limit, include_forecasted, since, force)
+                      since: str = "", force: bool = False, until: str = "") -> dict:
+    """Search Grants.gov (US federal funding; mostly institution-level, check eligibility) for postings opened since the last run.
+
+    until: end of a fixed date range (with since); the search is not written to the search log.
+    """
+    return sources.search_grants_gov(keyword, limit, include_forecasted, since, force, until)
 
 
 # ---------------------------------------------------------------- opportunities
@@ -309,6 +316,38 @@ def _set_fields(app: dict, fields: dict) -> None:
         app[key] = parsed.isoformat() if parsed else str(value)
 
 
+def _add_application(book: dict, opp: dict | None, name: str, *, app_type: str = "", level: str = "",
+                     contact: str = "", opens: str = "", next_action: str = "", next_action_date: str = "",
+                     fee_status: str = "", fee_amount: str = "", waiver_route: str = "",
+                     requirements: dict | None = None, notes: str = "", provider: str = "", link: str = "",
+                     deadline: str = "") -> tuple[dict | None, list[str]]:
+    """Append a Planning application to `book` (not saved) and mark its opportunity Applying; returns (row, problems)."""
+    settings = cfg.load_settings()
+    app_type = app_type or TYPE_FROM_CATEGORY.get(opp["Category"] if opp else "", "PhD admission + funding")
+    reqs = {r: ("Required" if r in settings["requirement_defaults"].get(app_type, []) else "") for r in cfg.REQUIREMENTS}
+    reqs.update(requirements or {})
+    fields = {
+        "Opportunity": name, "Type": app_type, "Provider": provider or (opp["Organization"] if opp else ""),
+        "Level": level or _level_from(name), "Link": link or (opp["Link"] if opp else ""), "Contact": contact,
+        "Opens": opens, "Deadline": deadline or (opp["Deadline"] if opp else ""), "Stage": "Planning",
+        "Next action": next_action, "Next action date": next_action_date,
+        "Fee status": fee_status or ("Not required" if app_type == "Fee waiver" else settings["default_fee_status"]),
+        "Fee amount": fee_amount, "Waiver route": waiver_route, "Notes": notes, **reqs,
+    }
+    problems = _check_fields({k: v for k, v in fields.items() if v})
+    if problems:
+        return None, problems
+    app = store.blank({}, store.APP_COLUMNS)
+    _set_fields(app, fields)
+    book["applications"].append(app)
+    if opp:
+        opp["Status"] = "Applying"
+        if store.within(opp, book["reviewed"]):
+            book["reviewed"].remove(opp)
+            book["active"].append(opp)
+    return app, []
+
+
 @mcp.tool()
 def start_application(title: str, app_type: str = "", level: str = "", contact: str = "", opens: str = "",
                       next_action: str = "", next_action_date: str = "", fee_status: str = "", fee_amount: str = "",
@@ -330,32 +369,43 @@ def start_application(title: str, app_type: str = "", level: str = "", contact: 
     name = opp["Title"] if opp else title
     if any(a["Opportunity"].lower() == name.lower() for a in book["applications"]):
         return {"error": f"An application for '{name}' already exists; use update_application."}
-    settings = cfg.load_settings()
-    app_type = app_type or TYPE_FROM_CATEGORY.get(opp["Category"] if opp else "", "PhD admission + funding")
-    reqs = {r: ("Required" if r in settings["requirement_defaults"].get(app_type, []) else "") for r in cfg.REQUIREMENTS}
-    reqs.update(requirements or {})
-    fields = {
-        "Opportunity": name, "Type": app_type, "Provider": provider or (opp["Organization"] if opp else ""),
-        "Level": level or _level_from(name), "Link": link or (opp["Link"] if opp else ""), "Contact": contact,
-        "Opens": opens, "Deadline": deadline or (opp["Deadline"] if opp else ""), "Stage": "Planning",
-        "Next action": next_action, "Next action date": next_action_date,
-        "Fee status": fee_status or ("Not required" if app_type == "Fee waiver" else settings["default_fee_status"]),
-        "Fee amount": fee_amount, "Waiver route": waiver_route, "Notes": notes, **reqs,
-    }
-    problems = _check_fields({k: v for k, v in fields.items() if v})
+    created, problems = _add_application(book, opp, name, app_type=app_type, level=level, contact=contact,
+                                         opens=opens, next_action=next_action, next_action_date=next_action_date,
+                                         fee_status=fee_status, fee_amount=fee_amount, waiver_route=waiver_route,
+                                         requirements=requirements, notes=notes, provider=provider, link=link,
+                                         deadline=deadline)
     if problems:
         return {"error": problems}
-    app = store.blank({}, store.APP_COLUMNS)
-    _set_fields(app, fields)
-    book["applications"].append(app)
-    if opp:
-        opp["Status"] = "Applying"
-        if store.within(opp, book["reviewed"]):
-            book["reviewed"].remove(opp)
-            book["active"].append(opp)
     store.save(book)
-    return {"created": name, "type": app_type, "requirements": {k: v for k, v in reqs.items() if v},
+    return {"created": name, "type": created["Type"],
+            "requirements": {r: created[r] for r in cfg.REQUIREMENTS if created[r]},
             "tip": "Confirm the checklist against the official page and fix it with update_application."}
+
+
+@mcp.tool()
+def sync_applications() -> dict:
+    """Create an Applications row for every opportunity whose Status is 'Applying' but has no application yet.
+
+    Use after setting Status to Applying in Excel (Opportunities or Reviewed sheet). Each new application gets the
+    opportunity's details and the default requirement checklist for its type; confirm it on the official page
+    afterwards. Rows that already have an application are skipped.
+    """
+    book = store.load()
+    have = {a["Opportunity"].lower() for a in book["applications"]}
+    created, problems = [], []
+    for opp in [r for r in book["active"] + book["reviewed"] if r["Status"] == "Applying"]:
+        if opp["Title"].lower() in have:
+            continue
+        app, errors = _add_application(book, opp, opp["Title"])
+        if errors:
+            problems.append({opp["Title"]: errors})
+            continue
+        have.add(opp["Title"].lower())
+        created.append({"title": opp["Title"], "type": app["Type"], "deadline": app["Deadline"]})
+    if created:
+        store.save(book)
+    return {"created": created, "problems": problems,
+            "tip": "Check each new checklist against the official page and fix it with update_application."}
 
 
 @mcp.tool()

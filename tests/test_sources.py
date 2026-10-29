@@ -78,3 +78,31 @@ def test_grants_gov_uses_open_date(gs, fake_http):
     assert [r["title"] for r in out["results"]] == ["New & Open"]
     assert out["results"][0]["deadline"] == "2027-01-15"
     assert fake_http.calls[0][2]["sortBy"] == "openDate|desc"
+
+
+def test_until_caps_window_and_skips_search_log(gs, fake_http):
+    s = gs.sources
+    start, end = s.window("x", "kw", since="2026-09-01", until="2026-09-30")
+    assert start.date().isoformat() == "2026-09-01"
+    assert end.isoformat().startswith("2026-09-30T23:59:59")  # a bare date covers the whole day
+
+    st = gs.store
+    st.save({"active": [st.blank({"Title": "Known", "Link": "https://p.com/known"})], "reviewed": [], "parked": [],
+             "applications": []})
+    fake_http.get.append(FakeResponse([_post("In Range Scholarship", "https://p.com/in", 10),
+                                       _post("Known", "https://p.com/known", 9)]))
+    out = s.search_opportunitiespedia("PhD", 100, "2026-10-01", False, "2026-10-15")
+    assert fake_http.calls[0][2]["before"].startswith("2026-10-15T23:59:59")
+    assert [r["title"] for r in out["results"]] == ["In Range Scholarship"]
+    assert out["already_tracked"] == 1 and "not written to the search log" in out["note"]
+    assert s.last_run("opportunitiespedia", "PhD") is None  # the "last run" marker is untouched
+
+
+def test_feed_search_skips_posts_newer_than_until(gs, fake_http):
+    page = RSS.format(ITEM.format(t="Too New Fellowship", l="https://s.com/new", d="Wed, 28 Oct 2026 10:00:00 +0000")
+                      + ITEM.format(t="In Range Fellowship", l="https://s.com/mid", d="Mon, 12 Oct 2026 10:00:00 +0000")
+                      + ITEM.format(t="Too Old Scholarship", l="https://s.com/old", d="Mon, 01 Jan 2024 10:00:00 +0000"))
+    fake_http.get.append(FakeResponse(content=page.encode()))
+    out = gs.sources.search_scholarship_sites("PhD", ["scholars4dev"], 100, "2026-10-01", False, "2026-10-15")
+    assert [r["title"] for r in out["results"]] == ["In Range Fellowship"]
+    assert gs.sources.last_run("scholars4dev", "PhD") is None

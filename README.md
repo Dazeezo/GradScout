@@ -14,7 +14,7 @@ Finds graduate-school funding (PhD, Master's, fellowships, scholarships, applica
   - "Re-scan the last 30 days, ignoring history."
 
 ## Automatic refresh
-A Claude scheduled task, **GradScout refresh**, runs daily at 08:00 while the Claude app is open (a missed run happens on next launch). On your refresh days (default Mon and Thu) it searches Gmail and all sources, scores and records everything, then reports new finds, deadlines and next actions; on other days it only reports what is due. Change the days, alerts and on/off switch in the home window ("Refresh & alerts"); change the time by asking Claude.
+A Claude scheduled task, **GradScout refresh**, runs daily at 10:00 while the Claude app is open (a missed run happens on next launch). On your refresh days (default Mon and Thu) it searches Gmail and all sources, scores and records everything, then reports new finds, deadlines and next actions; on other days it only reports what is due. Change the days, alerts and on/off switch in the home window ("Refresh & alerts"); change the time by asking Claude.
 
 ## The workbook (nothing is ever deleted)
 | Sheet | What it holds |
@@ -25,13 +25,14 @@ A Claude scheduled task, **GradScout refresh**, runs daily at 08:00 while the Cl
 | Parked (jobs & internships) | Out-of-scope items kept for the future jobs tool. |
 | Search log | Which time window each source covered. |
 
+- **Starting applications:** set a row's Status to **Applying** in Excel (Opportunities or Reviewed), then ask Claude "sync applications" (or wait for the next scheduled run, which does it automatically). Every Applying row without an application gets one, with the checklist pre-filled. You can still say "Start an application for X" for a single one.
 - Changing Fit moves a row between Opportunities and Reviewed; starting an application sets the opportunity's Status to Applying, and the application Stage keeps it in sync.
 - Requirement checklists are pre-filled per type from the defaults in the home window ("Applications" tab); Claude then checks the official page.
 - Close the workbook in Excel before Claude updates it; otherwise the write is refused with a clear message (search results are kept and recorded next time).
 - **Backups:** the first save each day copies the workbook to `data/backups/` (30 days kept).
 
 ## Search memory
-Every search records the window it covered; the next run starts there (minus a 24-hour overlap), so nothing is searched twice. Gmail uses an exact timestamp and remembers threads already read. Results already in the workbook are not returned again. "Reset search history" (Search tab) starts over.
+Every search records the window it covered; the next run starts there (minus a 24-hour overlap), so nothing is searched twice. Gmail uses an exact timestamp and remembers threads already read. Results already in the workbook are not returned again. "Reset search history" (Search tab) starts over. To search a fixed date range, ask Claude (for example "Opportunities Pedia, 1-30 September"): it passes `since` and `until`, skips anything already in the workbook, and does not write the search log, so the normal "last run" marker is unaffected.
 
 ## Sources
 - **Email:** LinkedIn notifications from accounts you follow, FindAPhD alerts (FindAPhD blocks automated access, so alerts are the way in). Senders are listed in settings.

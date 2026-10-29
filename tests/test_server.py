@@ -55,6 +55,23 @@ def test_application_lifecycle(gs):
     assert gs.server.get_digest()["next_actions_due"][0]["next_action"] == "Email supervisor"
 
 
+def test_sync_applications_from_applying_status(gs):
+    seed(gs)
+    gs.server.add_opportunities([{"title": "Gamma Masters", "organization": "Uni G", "fit": "Medium"}])
+    gs.server.update_status("Alpha", "Applying")
+    gs.server.update_status("Beta", "Applying")  # a Reviewed (Low) row marked Applying in Excel
+    gs.server.start_application("Gamma Masters")  # already has an application, so it is skipped
+    out = gs.server.sync_applications()
+    assert sorted(c["title"] for c in out["created"]) == ["Alpha PhD Scholarship", "Beta Fellowship"]
+    assert out["problems"] == []
+    book = gs.store.load()
+    assert {a["Opportunity"] for a in book["applications"]} == {"Alpha PhD Scholarship", "Beta Fellowship", "Gamma Masters"}
+    assert {r["Title"] for r in book["active"]} == {"Alpha PhD Scholarship", "Beta Fellowship", "Gamma Masters"}
+    alpha = [a for a in book["applications"] if a["Opportunity"].startswith("Alpha")][0]
+    assert alpha["Stage"] == "Planning" and alpha["Deadline"] == "2027-01-15" and alpha["Admission first"] == "Required"
+    assert gs.server.sync_applications()["created"] == []  # running it again changes nothing
+
+
 def test_settings_and_refresh_plan(gs):
     assert "error" in gs.server.update_settings({"refresh_days": ["Funday"]})
     assert "error" in gs.server.update_settings({"alert_days": "7"})

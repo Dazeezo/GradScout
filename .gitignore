@@ -1,0 +1,9 @@
+# Environment and caches
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Personal data: protected by daily backups in data/backups, never committed
+data/
+profile/
+*.tmp.xlsx

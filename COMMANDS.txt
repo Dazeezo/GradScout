@@ -1,0 +1,156 @@
+GRADSCOUT COMMAND CHEAT SHEET
+=============================
+
+HOW IT WORKS
+GradScout has no command line of its own. You talk to Claude in plain English
+(Claude desktop app or Claude Code, any session) and Claude uses the GradScout
+tools behind the scenes. The phrases below are examples; wording does not have
+to match exactly. The home window (GradScout.bat) and the spreadsheet
+(data/GradScout.xlsx) are for looking and editing, not for running searches.
+
+If a new tool does not seem to exist (for example after a code update), start a
+new Claude session or restart the app so the GradScout server reloads.
+
+
+1. RUN A SEARCH NOW (INSTANT SEARCH)
+------------------------------------
+Full refresh (Gmail + all sources + scoring + recording + report):
+  "Run a GradScout refresh."
+
+Search everything for one keyword:
+  "Search all sources for 'renewable energy' and score the results."
+
+Search ONE source:
+  "Search Opportunities Pedia for PhD."
+  "Search Scholars4dev for fully funded masters."
+  "Search Opportunity Desk for fellowship."
+  "Search Grants.gov for composite materials."
+  "Check my Gmail for new LinkedIn and FindAPhD alerts."
+  "Search EURAXESS for mechanical engineering PhD."          (Claude, on the web)
+  "Check the Chevening / DAAD / Swedish Institute page."     (Claude, on the web)
+
+Search by date range (checked against the spreadsheet, so nothing repeats;
+does not change the normal "last run" marker):
+  "Opportunities Pedia, PhD, 1-30 September 2026."
+  "Search all sources for 'fellowship' from 1 October to 15 October."
+
+Ignore search history and look back again:
+  "Re-scan the last 30 days, ignoring history."
+  "Force a re-scan of Opportunity Desk for 'PhD'."
+
+What Claude does after a search: reads each result against profile/profile.md,
+scores it High / Medium / Low with a reason and a Nigerian-eligibility note,
+then records ALL of them (nothing shown is lost). High and Medium go to the
+Opportunities sheet, Low goes to "Reviewed (not shortlisted)".
+Tip: ask for one search at a time, never several in parallel, or results can be
+filed as "Unscored".
+
+
+2. LOOK AT WHAT YOU HAVE
+------------------------
+  "Show me the High-fit opportunities."
+  "What's due in the next two weeks?"
+  "Give me the digest."                      (deadlines, next actions, counts, new items)
+  "List everything marked Interested."
+  "Show the Reviewed (not shortlisted) sheet."
+  "List my applications that are due within 14 days."
+  "List applications at the Preparing stage."
+  "When did each source last run?"
+
+
+3. CHANGE AN OPPORTUNITY
+------------------------
+Status (New, Interested, Applying, Applied, Rejected, Skip):
+  "Mark the Swedish Institute one as Interested."
+  "Set the Hong Kong PhD to Applying, note: email supervisors first."
+  "Skip the Aalto scholarship."
+You can also change Status in the spreadsheet dropdown.
+
+Fit (High, Medium, Low):
+  "Change the KTH scholarship to Low: tuition only."
+  "Move Imperial back to the shortlist as High."
+  "Promote the Ghent one back to the shortlist."     (from Reviewed to Opportunities)
+
+Park jobs and internships:
+  "Park the Siemens graduate trainee one."
+
+
+4. APPLICATIONS
+---------------
+Start tracking:
+  "Start an application for the UBC PhD; next action: email supervisors by 10 November."
+  "Sync applications."        (creates an Applications row for every opportunity
+                               whose Status is Applying and has no application yet)
+
+Update progress:
+  "Mark the CV done for VISTEC and set the fee status to Waived."
+  "Set the VISTEC stage to Submitted."       (also sets the opportunity to Applied)
+  "Set the Hong Kong next action to 'ask referee 2 for letter' on 20 November."
+  "Record the reply for Oxford as Positive."
+
+Stages: Planning, Preparing, Submitted, Interview, Offer, Rejected, Withdrawn.
+Requirement boxes: Required, In progress, Done, N/A.
+
+Rule of thumb: Status Applying + sync starts an application. After that, manage
+it on the Applications sheet (the Stage drives the Status, not the other way).
+
+
+5. SETTINGS
+-----------
+  "Show my GradScout settings."
+  "Add the keyword 'thermal energy' to my searches."
+  "Remove 'application fee waiver' from my keywords."
+  "Refresh on Mon, Wed and Fri."
+  "Alert me 21 days before deadlines."
+  "Turn automatic refresh off."
+  "Change the default first-run look-back to 90 days."
+  "Set the overlap to 3 days."               (each run re-reads this far before the last run;
+                                              also a dropdown in the home window's Search tab:
+                                              1 day, 3 days, 1 week, 2 weeks, or type your own)
+Settings can also be edited in the home window (then click Save settings).
+Current defaults: refresh Mon and Thu, 60-day look-back, 24-hour overlap,
+alerts 14 days before a deadline, next-action alerts 7 days.
+
+
+6. SCHEDULED REFRESH
+--------------------
+A Claude scheduled task named "gradscout-refresh" runs daily at 10:00 while the
+Claude app is open (a missed run happens on next launch). On refresh days it
+does the full refresh; on other days it only reports what is due.
+  "Move the GradScout schedule to 9 am."
+  "Pause the GradScout scheduled task."
+To test it now: use "Run now" on the task in the Claude desktop app.
+
+
+7. HOME WINDOW AND FILES
+------------------------
+  Double-click GradScout.bat     home window (counts, due soon, last searches, settings)
+  Buttons: Save settings, Open spreadsheet, Open profile, Open README, Reload
+  "Reset search history" (Search tab)   start every source from scratch
+  data/GradScout.xlsx            the spreadsheet (close it in Excel before Claude updates it)
+  data/backups/                  daily backup, last 30 days kept
+  profile/profile.md             your profile; edit it when your goals change
+  README.md                      full documentation
+
+
+8. DEVELOPER COMMANDS (run in a terminal in the GradScout folder)
+----------------------------------------------------------------
+  Run the tests:         .venv\Scripts\python.exe -m pytest -q
+  Check server status:   claude mcp list
+  Re-register server:    claude mcp add gradscout --scope user -- <path>\.venv\Scripts\python.exe <path>\app\server.py
+  Rebuild environment:   python -m venv .venv
+                         .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+
+9. UNDER THE HOOD (tool names, in case you want to name one directly)
+---------------------------------------------------------------------
+Searching:    search_opportunitiespedia, search_scholarship_sites (Scholars4dev and
+              Opportunity Desk), search_grants_gov
+              options: since, until, force, limit
+Memory:       get_last_run, log_run, new_threads, flush_pending, refresh_plan
+Recording:    add_opportunities, list_opportunities, update_status, update_fit,
+              promote_opportunity, park_opportunities
+Applications: start_application, sync_applications, update_application,
+              list_applications
+Reporting:    get_digest, get_profile
+Settings:     get_settings, update_settings

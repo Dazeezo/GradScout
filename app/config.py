@@ -1,6 +1,7 @@
 """Paths, settings, search log and pending-results storage shared by the server, the GUI and the tests."""
 import json
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,6 +68,32 @@ def _write(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+MAX_OVERLAP_HOURS = 24 * 60
+OVERLAP_PRESETS = {"1 day": 24, "3 days": 72, "1 week": 168, "2 weeks": 336}
+_UNIT_HOURS = {"h": 1, "hr": 1, "hour": 1, "d": 24, "day": 24, "w": 168, "wk": 168, "week": 168}
+
+
+def parse_overlap(text: str) -> int:
+    """'3 days', '1 week', '36 hours' (or a preset label) -> hours; raises ValueError when it can't be read."""
+    cleaned = str(text).strip().lower()
+    if cleaned in OVERLAP_PRESETS:
+        return OVERLAP_PRESETS[cleaned]
+    match = re.fullmatch(r"(\d+)\s*([a-z]+?)s?", cleaned)
+    if not match or match.group(2) not in _UNIT_HOURS:
+        raise ValueError("Overlap must be a number with a unit, for example '3 days', '1 week' or '36 hours'.")
+    return int(match.group(1)) * _UNIT_HOURS[match.group(2)]
+
+
+def overlap_label(hours: int) -> str:
+    """Hours -> the preset label when one matches, else the largest whole unit (e.g. 36 -> '36 hours', 120 -> '5 days')."""
+    for label, preset in OVERLAP_PRESETS.items():
+        if hours == preset:
+            return label
+    if hours and hours % 24 == 0:
+        return f"{hours // 24} days"
+    return f"{hours} hour" + ("" if hours == 1 else "s")
+
+
 def validate_settings(changes: dict) -> list[str]:
     """Return a list of problems with `changes` (empty when valid)."""
     problems = []
@@ -86,6 +113,8 @@ def validate_settings(changes: dict) -> list[str]:
             problems.append(f"requirement_defaults keys must be from {APP_TYPES} and values from {REQUIREMENTS}")
         elif key in ("default_window_days", "alert_days", "next_action_alert_days") and value < 1:
             problems.append(f"'{key}' must be at least 1")
+        elif key == "overlap_hours" and not 0 <= value <= MAX_OVERLAP_HOURS:
+            problems.append(f"'overlap_hours' must be between 0 and {MAX_OVERLAP_HOURS} (60 days)")
     return problems
 
 

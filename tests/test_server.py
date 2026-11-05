@@ -82,6 +82,25 @@ def test_settings_and_refresh_plan(gs):
     assert gs.server.refresh_plan()["refresh_due_today"] is False
 
 
+def test_overlap_presets_and_validation(gs):
+    cfg = gs.cfg
+    assert [cfg.parse_overlap(p) for p in ("1 day", "3 days", "1 week", "2 weeks")] == [24, 72, 168, 336]
+    assert cfg.parse_overlap("36 hours") == 36 and cfg.parse_overlap(" 5 Days ") == 120 and cfg.parse_overlap("2w") == 336
+    for bad in ("", "3", "soon", "5 fortnights"):
+        try:
+            cfg.parse_overlap(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad!r} should not parse")
+    assert [cfg.overlap_label(h) for h in (24, 336, 120, 36, 1)] == ["1 day", "2 weeks", "5 days", "36 hours", "1 hour"]
+    assert gs.server.update_settings({"overlap_hours": 336})["overlap_hours"] == 336  # two weeks was impossible before
+    assert "error" in gs.server.update_settings({"overlap_hours": cfg.MAX_OVERLAP_HOURS + 1})
+    assert "error" in gs.server.update_settings({"overlap_hours": -1})
+    last = gs.sources.now()
+    gs.sources.record("x", "kw", last - timedelta(days=1), last, 0)
+    assert gs.server.get_last_run("x", "kw")["suggested_since"] == gs.sources.ts(last - timedelta(hours=336))
+
+
 def test_gmail_memory(gs):
     assert gs.server.get_last_run("gmail")["gmail_after_epoch"] is None
     gs.server.log_run("gmail", found=2, thread_ids=["t1", "t2"])

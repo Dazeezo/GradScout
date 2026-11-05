@@ -147,12 +147,18 @@ class App(tk.Tk):
         window = ttk.LabelFrame(right, text="Time window", padding=6)
         window.pack(fill="x", pady=4)
         self.days = tk.IntVar(value=s["default_window_days"])
-        self.overlap = tk.IntVar(value=s["overlap_hours"])
-        for label, var, top in (("First-run look-back (days)", self.days, 1500), ("Overlap on later runs (hours)", self.overlap, 240)):
-            row = ttk.Frame(window)
-            row.pack(fill="x", pady=2)
-            ttk.Label(row, text=label).pack(side="left")
-            ttk.Spinbox(row, from_=0, to=top, width=6, textvariable=var).pack(side="right")
+        row = ttk.Frame(window)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="First-run look-back (days)").pack(side="left")
+        ttk.Spinbox(row, from_=1, to=1500, width=6, textvariable=self.days).pack(side="right")
+        self.overlap = tk.StringVar(value=cfg.overlap_label(s["overlap_hours"]))
+        row = ttk.Frame(window)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Re-read before the last run").pack(side="left")
+        ttk.Combobox(row, textvariable=self.overlap, values=list(cfg.OVERLAP_PRESETS), width=12).pack(side="right")
+        ttk.Label(window, foreground="#555555", wraplength=330, justify="left",
+                  text="Each run resumes from the last run's end, minus this overlap. Pick a preset or type your own, "
+                       "e.g. '5 days' or '36 hours'.").pack(anchor="w", pady=(0, 2))
         ttk.Button(right, text="Reset search history", command=self.reset_history).pack(anchor="w", pady=(8, 0))
 
     def reset_history(self) -> None:
@@ -214,14 +220,17 @@ class App(tk.Tk):
             changes = {
                 "keywords": self._read(self.keywords), "exclude_terms": self._read(self.exclude),
                 "gmail_senders": self._read(self.senders), "sites": [n for n, v in self.site_vars.items() if v.get()],
-                "default_window_days": int(self.days.get()), "overlap_hours": int(self.overlap.get()),
+                "default_window_days": int(self.days.get()), "overlap_hours": cfg.parse_overlap(self.overlap.get()),
                 "auto_refresh": bool(self.auto.get()), "refresh_days": [d for d, v in self.day_vars.items() if v.get()],
                 "alert_days": int(self.alert_days.get()), "next_action_alert_days": int(self.action_days.get()),
                 "requirement_defaults": {t: [r for r in cfg.REQUIREMENTS if self.req_vars[(t, r)].get()] for t in cfg.APP_TYPES},
                 "default_fee_status": self.fee.get(),
             }
-        except (tk.TclError, ValueError):
-            messagebox.showerror("Invalid value", "Days and hours must be whole numbers.")
+        except tk.TclError:
+            messagebox.showerror("Invalid value", "Days must be whole numbers.")
+            return
+        except ValueError as error:
+            messagebox.showerror("Invalid value", str(error) if "Overlap" in str(error) else "Days must be whole numbers.")
             return
         problems = cfg.validate_settings(changes)
         if problems:
